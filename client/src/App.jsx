@@ -11,6 +11,7 @@ import SettingsPage from './pages/SettingsPage';
 import HistoryPage from './pages/HistoryPage';
 import LeadPipelinePage from './pages/LeadPipelinePage';
 import PerformancePage from './pages/PerformancePage';
+import KnowledgePage from './pages/KnowledgePage';
 
 export default function App() {
   return (
@@ -30,6 +31,7 @@ export default function App() {
                 <Route path="/history" element={<HistoryPage />} />
                 <Route path="/pipeline" element={<LeadPipelinePage />} />
                 <Route path="/performance" element={<PerformancePage />} />
+                <Route path="/knowledge" element={<KnowledgePage />} />
               </Routes>
             </div>
           </div>

@@ -8,6 +8,8 @@ import historyRoutes from './routes/history.js';
 import errorHandler from './middleware/errorHandler.js';
 import ghlRoutes      from './routes/ghl.js';
 import learningRoutes from './routes/learning.js';
+import knowledgeRoutes from './routes/knowledge.js';
+
 
 const app = express();
 const PORT = env.PORT;
@@ -25,6 +27,7 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/history', historyRoutes);
 app.use('/api/ghl',      ghlRoutes);
 app.use('/api/learning', learningRoutes);
+app.use('/api/knowledge', knowledgeRoutes);
 
 // ── Health check ──
 app.get('/api/health', (req, res) => {

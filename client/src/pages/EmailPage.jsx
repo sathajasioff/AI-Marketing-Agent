@@ -4,16 +4,17 @@ import ContextBar from '../components/ui/ContextBar';
 import OutputCard from '../components/ui/OutputCard';
 import { useAgent } from '../hooks/useAgent';
 import { runEmail } from '../services/api';
+import FeedbackBar from '../components/ui/FeedbackBar';
 
 export default function EmailPage() {
-  const { output, loading, error, run } = useAgent(runEmail);
+  const { output, loading, error, run, generationId } = useAgent(runEmail);
 
   const [form, setForm] = useState({
     sequenceType: 'nurture',
-    segment:      'cold',
-    senderName:   'The Elev8 Team',
-    tone:         'professional',
-    offer:        '',
+    segment: 'cold',
+    senderName: 'The Elev8 Team',
+    tone: 'professional',
+    offer: '',
   });
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -29,7 +30,7 @@ export default function EmailPage() {
       <div className="page-content fade-in">
         <ContextBar items={[
           { label: 'Platform', value: 'GoHighLevel Automations' },
-          { label: 'Format',   value: 'Subject + Body per email' },
+          { label: 'Format', value: 'Subject + Body per email' },
         ]} />
 
         <div className="agent-layout">
@@ -93,6 +94,12 @@ export default function EmailPage() {
             error={error}
             icon="📧"
             placeholder="Choose your sequence type and generate GHL-ready emails"
+          />
+
+          {/* // add after </OutputCard> */}
+          <FeedbackBar
+            generationId={generationId}
+            agentType="email"
           />
         </div>
       </div>

@@ -4,19 +4,20 @@ import ContextBar from '../components/ui/ContextBar';
 import OutputCard from '../components/ui/OutputCard';
 import { useAgent } from '../hooks/useAgent';
 import { runContent } from '../services/api';
+import FeedbackBar from '../components/ui/FeedbackBar';
 
 const TABS = ['meta', 'funnel', 'social', 'vsl'];
 const TAB_LABELS = { meta: 'Meta Ads', funnel: 'Funnel Copy', social: 'Social Posts', vsl: 'VSL Script' };
 
 export default function ContentPage() {
-  const { output, loading, error, run } = useAgent(runContent);
+  const { output, loading, error, run, generationId } = useAgent(runContent);
   const [tab, setTab] = useState('meta');
 
   // ── Per-tab form state ──
-  const [meta,   setMeta]   = useState({ adType: 'tof', persona: 'entrepreneur', pain: '', variants: '3' });
+  const [meta, setMeta] = useState({ adType: 'tof', persona: 'entrepreneur', pain: '', variants: '3' });
   const [funnel, setFunnel] = useState({ pageType: 'optin', audience: 'Entrepreneurs & Business Owners', headline: '' });
   const [social, setSocial] = useState({ platform: 'Instagram (caption + hashtags)', postType: 'hype', count: '5' });
-  const [vsl,    setVsl]    = useState({ length: 'medium', audience: 'Entrepreneurs & Business Owners', cta: 'Register for free — capture email' });
+  const [vsl, setVsl] = useState({ length: 'medium', audience: 'Entrepreneurs & Business Owners', cta: 'Register for free — capture email' });
 
   const fieldOf = (setter) => (k) => (e) => setter((f) => ({ ...f, [k]: e.target.value }));
 
@@ -185,6 +186,13 @@ export default function ContentPage() {
             icon="✍️"
             placeholder="Select your content type and generate copy"
           />
+
+          <FeedbackBar
+            generationId={generationId}
+            agentType="content"
+            subType={tab}
+          />
+
         </div>
       </div>
     </>

@@ -4,6 +4,7 @@ import ContextBar from '../components/ui/ContextBar';
 import OutputCard from '../components/ui/OutputCard';
 import { useAgent } from '../hooks/useAgent';
 import { runLeads } from '../services/api';
+import FeedbackBar from '../components/ui/FeedbackBar';
 
 const ACTION_OPTIONS = [
   'Opted into freebie',
@@ -16,13 +17,13 @@ const ACTION_OPTIONS = [
 ];
 
 export default function LeadsPage() {
-  const { output, loading, error, run } = useAgent(runLeads);
+  const { output, loading, error, run, generationId } = useAgent(runLeads);
 
   const [form, setForm] = useState({
-    name:     '',
-    source:   'meta-ad',
+    name: '',
+    source: 'meta-ad',
     industry: 'entrepreneur',
-    notes:    '',
+    notes: '',
   });
   const [actions, setActions] = useState([]);
 
@@ -43,7 +44,7 @@ export default function LeadsPage() {
       <Topbar title="Lead Qualification Agent" subtitle="Score leads and get GHL tag + follow-up recommendations" />
       <div className="page-content fade-in">
         <ContextBar items={[
-          { label: 'Output',   value: 'Score · GHL Tag · Next Step' },
+          { label: 'Output', value: 'Score · GHL Tag · Next Step' },
           { label: 'Segments', value: 'Cold → Warm → Hot → Buyer' },
         ]} />
 
@@ -121,8 +122,13 @@ export default function LeadsPage() {
             icon="🎯"
             placeholder="Fill in the lead details and qualify them for Elev8 Montreal"
           />
-        </div>
+  
+        <FeedbackBar
+          generationId={generationId}
+          agentType="leads"
+        />
       </div>
+    </div >
     </>
   );
 }

@@ -38,5 +38,4 @@ export function useAgent(apiFn) {
   };
 
   return { output, generationId, loading, error, run, reset };
-  return { output, generationId, loading, error, run, reset };
 }

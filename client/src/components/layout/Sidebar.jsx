@@ -11,6 +11,7 @@ const navItems = [
   { to: '/history',  label: 'History',          icon: '🗂️', dot: null },
   { to: '/pipeline', label: 'GHL Pipeline',     icon: '🔗', dot: 'dot-teal',   section: 'GHL Integration' },
   { to: '/performance', label: 'AI Performance', icon: '📈', dot: 'dot-gold' },
+  { to: '/knowledge', label: 'Knowledge Base', icon: '📚', dot: 'dot-gold', section: 'Skill Development' },
 ];
 
 export default function Sidebar() {
