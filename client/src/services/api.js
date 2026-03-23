@@ -25,7 +25,10 @@ export const getPipelineStats = ()          => api.get('/ghl/stats');
 export const qualifyLead      = (id)        => api.post(`/ghl/qualify/${id}`);
 export const pushTagsToGHL    = (id)        => api.post(`/ghl/push-tags/${id}`);
 export const pushNoteToGHL    = (id)        => api.post(`/ghl/push-note/${id}`);
-export const triggerWorkflow  = (id, tag)   => api.post(`/ghl/trigger-workflow/${id}`, { workflowTag: tag });
+export const triggerWorkflow  = (id, payload) => {
+  const body = typeof payload === 'string' ? { workflowTag: payload } : payload;
+  return api.post(`/ghl/trigger-workflow/${id}`, body);
+};
 export const setLeadOutcome   = (id, data)  => api.patch(`/ghl/outcome/${id}`, data);
 
 // ── Learning ──
@@ -60,5 +63,6 @@ export const disconnectMeta     = ()     => api.delete('/integrations/meta');
 export const getMetaDashboard  = (params) => api.get('/meta/dashboard', { params });
 export const getMetaSummary    = (params) => api.get('/meta/summary',   { params });
 export const getMetaCampaigns  = (params) => api.get('/meta/campaigns', { params });
+export const getBrandVoices = () => api.get('/knowledge/brand-voices');
 
 export default api;
