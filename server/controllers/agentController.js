@@ -7,11 +7,14 @@ import KnowledgeBase from '../models/KnowledgeBase.js';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-// Add this helper at the top of the file
-const getBrandVoiceContext = async (brandVoiceId) => {
+// ── Brand voice — scoped to client ──
+const getBrandVoiceContext = async (brandVoiceId, clientId) => {
   if (!brandVoiceId) return '';
   try {
-    const voice = await KnowledgeBase.findById(brandVoiceId);
+    const voice = await KnowledgeBase.findOne({
+      _id:      brandVoiceId,
+      clientId,                // ← scoped to client
+    });
     if (!voice) return '';
     return `\n\n═══════════════════════════════════════════
 ACTIVE BRAND VOICE — APPLY TO ALL OUTPUT
@@ -27,8 +30,9 @@ override any default style. Do not use generic AI-sounding copy.
   }
 };
 
-const getEventContext = async () => {
-  const settings = await EventSettings.findOne({ singleton: 'elev8' });
+// ── Event context — scoped to client ──
+const getEventContext = async (clientId) => {
+  const settings = await EventSettings.findOne({ clientId }); // ← scoped to client
   if (!settings) {
     return `EVENT: Elev8 Montreal
 DATE: 2025, Montreal, Quebec, Canada
@@ -45,54 +49,64 @@ VALUE PROPOSITIONS: ${settings.valuePropositions}
 BRAND VOICE: ${settings.brandVoice}`;
 };
 
-const callClaude = async ({ systemPrompt, userPrompt, agentType, subType, inputParams }) => {
+// ── Claude caller — scoped to client ──
+const callClaude = async ({ systemPrompt, userPrompt, agentType, subType, inputParams, clientId }) => {
   const message = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model:      'claude-sonnet-4-20250514',
     max_tokens: 1800,
-    system: systemPrompt,
-    messages: [{ role: 'user', content: userPrompt }],
+    system:     systemPrompt,
+    messages:   [{ role: 'user', content: userPrompt }],
   });
 
-  const output = message.content.map((b) => b.text || '').join('');
+  const output     = message.content.map((b) => b.text || '').join('');
   const tokensUsed = (message.usage?.input_tokens || 0) + (message.usage?.output_tokens || 0);
   const promptHash = hashPrompt(systemPrompt, userPrompt);
 
   await recordPromptUse({
+    clientId,                  // ← scoped to client
     agentType,
-    subType: subType || null,
+    subType:       subType || null,
     promptHash,
     promptSnapshot: { systemPrompt, userPromptTemplate: userPrompt },
   });
 
   const generation = await Generation.create({
+    clientId,                  // ← scoped to client
     agentType,
-    subType: subType || null,
+    subType:    subType || null,
     inputParams,
     output,
     tokensUsed,
     promptHash,
   });
 
+  // ── Increment usage counter on the client ──
+  try {
+    const Client = (await import('../models/Client.js')).default;
+    await Client.findByIdAndUpdate(clientId, { $inc: { generationsUsed: 1 } });
+  } catch { /* non-blocking */ }
+
   return { output, generationId: generation._id, tokensUsed, promptHash };
 };
 
-// ── STRATEGY AGENT ──
+// ══════════════════════════════════════════
+// STRATEGY AGENT
+// ══════════════════════════════════════════
 export const runStrategy = async (req, res, next) => {
   try {
     const { goal, price, budget, audience, timeline, offers, brandVoiceId } = req.body;
-    const eventContext = await getEventContext();
+    const clientId = req.clientId;                     // ← from auth middleware
 
-
-    // ── knowledge injected here ──
-    const knowledgeContext = await getKnowledgeForAgent('strategy');
-    const brandVoice       = await getBrandVoiceContext(brandVoiceId);
+    const eventContext     = await getEventContext(clientId);
+    const knowledgeContext = await getKnowledgeForAgent('strategy', clientId);
+    const brandVoice       = await getBrandVoiceContext(brandVoiceId, clientId);
 
     const baseSystemPrompt = `You are an elite event marketing strategist specializing in high-ticket business events in Canada. You create detailed, actionable campaign strategies that drive ticket sales through Meta Ads, email marketing, and funnel optimization. All strategies must be practical for GoHighLevel CRM implementation.
 
 Format your response with clear sections using ## for main headings and ### for sub-sections. Be specific with numbers, timelines, and tactics.`;
 
     const { systemPrompt } = await buildEnhancedSystemPrompt(
-      'strategy', null, baseSystemPrompt, eventContext + knowledgeContext,
+      'strategy', null, baseSystemPrompt,
       eventContext + knowledgeContext + brandVoice
     );
 
@@ -116,32 +130,33 @@ Include:
     const result = await callClaude({
       systemPrompt,
       userPrompt,
-      agentType: 'strategy',
+      agentType:  'strategy',
       inputParams: req.body,
+      clientId,                                        // ← pass clientId
     });
 
     res.json({ success: true, ...result });
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); }
 };
 
-// ── CONTENT AGENT ──
+// ══════════════════════════════════════════
+// CONTENT AGENT
+// ══════════════════════════════════════════
 export const runContent = async (req, res, next) => {
   try {
     const { subType, brandVoiceId, ...params } = req.body;
-    const eventContext = await getEventContext();
+    const clientId = req.clientId;                     // ← from auth middleware
 
-    // ── knowledge injected here ──
-    const knowledgeContext = await getKnowledgeForAgent('content');
-    const brandVoice       = await getBrandVoiceContext(brandVoiceId);
+    const eventContext     = await getEventContext(clientId);
+    const knowledgeContext = await getKnowledgeForAgent('content', clientId);
+    const brandVoice       = await getBrandVoiceContext(brandVoiceId, clientId);
 
     const baseSystemPrompt = `You are an expert direct-response copywriter specializing in event marketing and Meta advertising in Canada. You write compelling, high-converting copy for business and entrepreneurship events. Your copy is punchy, benefit-driven, and speaks directly to ambitious professionals.
 
 Format with ## for variants or sections, ### for sub-elements. Include character counts where relevant for Meta ad compliance.`;
 
     const { systemPrompt } = await buildEnhancedSystemPrompt(
-      'content', subType, baseSystemPrompt, eventContext + knowledgeContext,
+      'content', subType, baseSystemPrompt,
       eventContext + knowledgeContext + brandVoice
     );
 
@@ -162,23 +177,27 @@ For each variant:
 **Description (max 30 chars):**
 **CTA Button:** [Register Now / Get Tickets / Learn More]
 **Why this works:** [1 sentence]`;
+
     } else if (subType === 'funnel') {
       const { pageType, audience, headline } = params;
       userPrompt = `Write complete ${pageType} page copy for Elev8 Montreal.
 Audience: ${audience}
 Headline Direction: ${headline || 'grow their business and income'}
 Include: headline, subheadline, hero section, benefits/bullets, social proof placeholders, CTA, urgency element.`;
+
     } else if (subType === 'social') {
       const { platform, postType, count } = params;
       userPrompt = `Write ${count} ${platform} posts for Elev8 Montreal.
 Content Type: ${postType}
 Include: caption text, emojis, hashtags (for Instagram), clear CTA in each post.`;
+
     } else if (subType === 'vsl') {
       const { length, audience, cta } = params;
       userPrompt = `Write a complete ${length} VSL script for Elev8 Montreal.
 Audience: ${audience}
 CTA: ${cta}
 Include: [HOOK], [PROBLEM], [AGITATE], [SOLUTION], [SOCIAL PROOF], [OFFER], [CTA] sections with speaker notes.`;
+
     } else {
       return res.status(400).json({ success: false, message: 'Invalid content subType' });
     }
@@ -186,26 +205,27 @@ Include: [HOOK], [PROBLEM], [AGITATE], [SOLUTION], [SOCIAL PROOF], [OFFER], [CTA
     const result = await callClaude({
       systemPrompt,
       userPrompt,
-      agentType: 'content',
+      agentType:  'content',
       subType,
       inputParams: req.body,
+      clientId,                                        // ← pass clientId
     });
 
     res.json({ success: true, ...result });
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); }
 };
 
-// ── EMAIL AGENT ──
+// ══════════════════════════════════════════
+// EMAIL AGENT
+// ══════════════════════════════════════════
 export const runEmail = async (req, res, next) => {
   try {
     const { sequenceType, segment, senderName, tone, offer, brandVoiceId } = req.body;
-    const eventContext = await getEventContext();
+    const clientId = req.clientId;                     // ← from auth middleware
 
-    // ── knowledge injected here ──
-    const knowledgeContext = await getKnowledgeForAgent('email');
-    const brandVoice       = await getBrandVoiceContext(brandVoiceId);
+    const eventContext     = await getEventContext(clientId);
+    const knowledgeContext = await getKnowledgeForAgent('email', clientId);
+    const brandVoice       = await getBrandVoiceContext(brandVoiceId, clientId);
 
     const baseSystemPrompt = `You are an expert email marketing specialist for live business events. You write high-converting email sequences that nurture leads and drive ticket sales. All emails must be formatted for easy import into GoHighLevel automations.
 
@@ -219,7 +239,7 @@ CRITICAL FORMAT for each email:
 ---`;
 
     const { systemPrompt } = await buildEnhancedSystemPrompt(
-      'email', null, baseSystemPrompt, eventContext + knowledgeContext,
+      'email', null, baseSystemPrompt,
       eventContext + knowledgeContext + brandVoice
     );
 
@@ -234,32 +254,33 @@ Include all emails with proper spacing/timing notes.`;
     const result = await callClaude({
       systemPrompt,
       userPrompt,
-      agentType: 'email',
+      agentType:  'email',
       inputParams: req.body,
+      clientId,                                        // ← pass clientId
     });
 
     res.json({ success: true, ...result });
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); }
 };
 
-// ── LEADS AGENT ──
+// ══════════════════════════════════════════
+// LEAD AGENT
+// ══════════════════════════════════════════
 export const runLeads = async (req, res, next) => {
   try {
     const { name, source, industry, actions, notes, brandVoiceId } = req.body;
-    const eventContext = await getEventContext();
+    const clientId = req.clientId;                     // ← from auth middleware
 
-    // ── knowledge injected here ──
-    const knowledgeContext = await getKnowledgeForAgent('leads');
-    const brandVoice       = await getBrandVoiceContext(brandVoiceId);
+    const eventContext     = await getEventContext(clientId);
+    const knowledgeContext = await getKnowledgeForAgent('leads', clientId);
+    const brandVoice       = await getBrandVoiceContext(brandVoiceId, clientId);
 
     const baseSystemPrompt = `You are a lead qualification specialist for high-ticket business events. You analyze lead behavior and profile data to score leads and recommend precise follow-up actions in GoHighLevel.
 
 Scoring: 0-30 = Cold, 31-55 = Warm, 56-80 = Hot, 81-100 = Buyer-Ready`;
 
     const { systemPrompt } = await buildEnhancedSystemPrompt(
-      'leads', null, baseSystemPrompt, eventContext + knowledgeContext,
+      'leads', null, baseSystemPrompt,
       eventContext + knowledgeContext + brandVoice
     );
 
@@ -285,12 +306,11 @@ Provide:
     const result = await callClaude({
       systemPrompt,
       userPrompt,
-      agentType: 'leads',
+      agentType:  'leads',
       inputParams: req.body,
+      clientId,                                        // ← pass clientId
     });
 
     res.json({ success: true, ...result });
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); }
 };

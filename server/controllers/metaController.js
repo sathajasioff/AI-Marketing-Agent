@@ -8,11 +8,12 @@ import {
   export const getMetaDashboard = async (req, res, next) => {
     try {
       const { datePreset = 'last_14d' } = req.query;
+      const clientId = req.clientId;   
       const [summary, campaigns, daily, topAds] = await Promise.allSettled([
-        getAccountSummary({ datePreset }),
-        getCampaignInsights({ datePreset }),
-        getDailyInsights({ days: 14 }),
-        getTopAds({ datePreset, limit: 5 }),
+        getAccountSummary({ datePreset, clientId }),             // ← pass clientId
+      getCampaignInsights({ datePreset, clientId }),           // ← pass clientId
+      getDailyInsights({ days: 14, clientId }),                // ← pass clientId
+      getTopAds({ datePreset, limit: 5, clientId }), 
       ]);
       res.json({
         success: true,
@@ -33,6 +34,8 @@ import {
       res.json({ success: true, summary });
     } catch (err) { next(err); }
   };
+
+  
   
   export const getCampaigns = async (req, res, next) => {
     try {

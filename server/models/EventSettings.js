@@ -38,6 +38,12 @@ const eventSettingsSchema = new mongoose.Schema(
       type: String,
       default: 'Professional, Ambitious, Results-Focused',
     },
+    clientId: {
+      type:     mongoose.Schema.Types.ObjectId,
+      ref:      'Client',
+      required: true,
+      index:    true,
+    },
   },
   { timestamps: true }
 );

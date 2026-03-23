@@ -6,8 +6,8 @@ const mask = (str) => str ? '••••••' + str.slice(-4) : '';
 // ── GET /api/integrations ──
 export const getIntegrations = async (req, res, next) => {
   try {
-    let doc = await Integration.findOne({ singleton: 'main' });
-    if (!doc) doc = await Integration.create({ singleton: 'main' });
+    let doc = await Integration.findOne({ clientId: req.clientId }); // ← scope
+    if (!doc) doc = await Integration.create({ clientId: req.clientId });
 
     res.json({
       success: true,
@@ -31,6 +31,7 @@ export const saveMeta = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Both Access Token and Ad Account ID are required' });
 
     await Integration.findOneAndUpdate(
+      { clientId: req.clientId },
       { singleton: 'main' },
       { metaAccessToken, metaAdAccountId, metaConnected: false, metaAccountName: '' },
       { upsert: true, new: true }
@@ -43,7 +44,7 @@ export const saveMeta = async (req, res, next) => {
 // ── POST /api/integrations/meta/test ──
 export const testMeta = async (req, res, next) => {
   try {
-    const doc = await Integration.findOne({ singleton: 'main' });
+    const doc = await Integration.findOne({ clientId: req.clientId });
     if (!doc?.metaAccessToken || !doc?.metaAdAccountId)
       return res.status(400).json({ success: false, message: 'Save your Meta credentials first' });
 
@@ -79,6 +80,7 @@ export const testMeta = async (req, res, next) => {
 export const disconnectMeta = async (req, res, next) => {
   try {
     await Integration.findOneAndUpdate(
+      { clientId: req.clientId },  
       { singleton: 'main' },
       { metaAccessToken: '', metaAdAccountId: '', metaConnected: false, metaTestedAt: null, metaAccountName: '' }
     );
@@ -87,8 +89,8 @@ export const disconnectMeta = async (req, res, next) => {
 };
 
 // ── Used internally by metaService ──
-export const getMetaCredentials = async () => {
-  const doc = await Integration.findOne({ singleton: 'main' });
+export const getMetaCredentials = async (clientId) => {
+  const doc = await Integration.findOne({ clientId });
   return {
     accessToken:  doc?.metaAccessToken || process.env.META_ACCESS_TOKEN || '',
     adAccountId:  doc?.metaAdAccountId || process.env.META_AD_ACCOUNT_ID || '',

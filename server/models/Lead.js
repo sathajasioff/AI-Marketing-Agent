@@ -21,6 +21,12 @@ const leadSchema = new mongoose.Schema(
       enum: ['cold', 'warm', 'hot', 'buyer', null],
       default: null,
     },
+    clientId: {
+      type:     mongoose.Schema.Types.ObjectId,
+      ref:      'Client',
+      required: true,
+      index:    true,
+    },
     aiOutput:        { type: String, default: null },
     recommendedTags: { type: [String], default: [] },
     recommendedFlow: { type: String, default: null },
@@ -39,8 +45,11 @@ const leadSchema = new mongoose.Schema(
     notePushedToGHL:   { type: Boolean, default: false },
     workflowTriggered: { type: Boolean, default: false },
   },
+  
   { timestamps: true }
 );
+
+
 
 leadSchema.virtual('fullName').get(function () {
   return `${this.firstName} ${this.lastName}`.trim() || this.email || 'Unknown';
@@ -49,7 +58,7 @@ leadSchema.virtual('fullName').get(function () {
 leadSchema.index({ aiScore: -1 });
 leadSchema.index({ aiSegment: 1 });
 leadSchema.index({ outcome: 1 });
-leadSchema.index({ ghlContactId: 1, ghlAccountId: 1 }, { unique: true });
+leadSchema.index({ clientId: 1, ghlContactId: 1, ghlAccountId: 1 }, { unique: true });
 
 const Lead = mongoose.model('Lead', leadSchema);
 export default Lead;
