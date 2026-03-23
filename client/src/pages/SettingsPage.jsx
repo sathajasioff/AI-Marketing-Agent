@@ -21,7 +21,7 @@ export default function SettingsPage() {
 
   return (
     <>
-      <Topbar title="Event Context" subtitle="Configure your event details — injected into all agents" />
+      <Topbar title="Service/Product Context" subtitle="Configure your event details — injected into all agents" />
       <div className="page-content fade-in">
         <form className="card" style={{ maxWidth: 580 }} onSubmit={handleSubmit}>
           <div className="form-card-title">

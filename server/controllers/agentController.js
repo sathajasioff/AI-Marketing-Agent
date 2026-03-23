@@ -3,8 +3,29 @@ import Generation from '../models/Generation.js';
 import EventSettings from '../models/EventSettings.js';
 import { buildEnhancedSystemPrompt, recordPromptUse, hashPrompt } from '../services/learningService.js';
 import { getKnowledgeForAgent } from './knowledgeController.js';
+import KnowledgeBase from '../models/KnowledgeBase.js';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+// Add this helper at the top of the file
+const getBrandVoiceContext = async (brandVoiceId) => {
+  if (!brandVoiceId) return '';
+  try {
+    const voice = await KnowledgeBase.findById(brandVoiceId);
+    if (!voice) return '';
+    return `\n\n═══════════════════════════════════════════
+ACTIVE BRAND VOICE — APPLY TO ALL OUTPUT
+═══════════════════════════════════════════
+${voice.content}
+═══════════════════════════════════════════
+IMPORTANT: Every word you generate must follow the brand voice above.
+The writing style, frameworks, tone, and language patterns defined above
+override any default style. Do not use generic AI-sounding copy.
+═══════════════════════════════════════════\n`;
+  } catch {
+    return '';
+  }
+};
 
 const getEventContext = async () => {
   const settings = await EventSettings.findOne({ singleton: 'elev8' });
@@ -58,18 +79,21 @@ const callClaude = async ({ systemPrompt, userPrompt, agentType, subType, inputP
 // ── STRATEGY AGENT ──
 export const runStrategy = async (req, res, next) => {
   try {
-    const { goal, price, budget, audience, timeline, offers } = req.body;
+    const { goal, price, budget, audience, timeline, offers, brandVoiceId } = req.body;
     const eventContext = await getEventContext();
+
 
     // ── knowledge injected here ──
     const knowledgeContext = await getKnowledgeForAgent('strategy');
+    const brandVoice       = await getBrandVoiceContext(brandVoiceId);
 
     const baseSystemPrompt = `You are an elite event marketing strategist specializing in high-ticket business events in Canada. You create detailed, actionable campaign strategies that drive ticket sales through Meta Ads, email marketing, and funnel optimization. All strategies must be practical for GoHighLevel CRM implementation.
 
 Format your response with clear sections using ## for main headings and ### for sub-sections. Be specific with numbers, timelines, and tactics.`;
 
     const { systemPrompt } = await buildEnhancedSystemPrompt(
-      'strategy', null, baseSystemPrompt, eventContext + knowledgeContext
+      'strategy', null, baseSystemPrompt, eventContext + knowledgeContext,
+      eventContext + knowledgeContext + brandVoice
     );
 
     const userPrompt = `Create a complete marketing campaign strategy for Elev8 Montreal:
@@ -105,18 +129,20 @@ Include:
 // ── CONTENT AGENT ──
 export const runContent = async (req, res, next) => {
   try {
-    const { subType, ...params } = req.body;
+    const { subType, brandVoiceId, ...params } = req.body;
     const eventContext = await getEventContext();
 
     // ── knowledge injected here ──
     const knowledgeContext = await getKnowledgeForAgent('content');
+    const brandVoice       = await getBrandVoiceContext(brandVoiceId);
 
     const baseSystemPrompt = `You are an expert direct-response copywriter specializing in event marketing and Meta advertising in Canada. You write compelling, high-converting copy for business and entrepreneurship events. Your copy is punchy, benefit-driven, and speaks directly to ambitious professionals.
 
 Format with ## for variants or sections, ### for sub-elements. Include character counts where relevant for Meta ad compliance.`;
 
     const { systemPrompt } = await buildEnhancedSystemPrompt(
-      'content', subType, baseSystemPrompt, eventContext + knowledgeContext
+      'content', subType, baseSystemPrompt, eventContext + knowledgeContext,
+      eventContext + knowledgeContext + brandVoice
     );
 
     let userPrompt = '';
@@ -174,11 +200,12 @@ Include: [HOOK], [PROBLEM], [AGITATE], [SOLUTION], [SOCIAL PROOF], [OFFER], [CTA
 // ── EMAIL AGENT ──
 export const runEmail = async (req, res, next) => {
   try {
-    const { sequenceType, segment, senderName, tone, offer } = req.body;
+    const { sequenceType, segment, senderName, tone, offer, brandVoiceId } = req.body;
     const eventContext = await getEventContext();
 
     // ── knowledge injected here ──
     const knowledgeContext = await getKnowledgeForAgent('email');
+    const brandVoice       = await getBrandVoiceContext(brandVoiceId);
 
     const baseSystemPrompt = `You are an expert email marketing specialist for live business events. You write high-converting email sequences that nurture leads and drive ticket sales. All emails must be formatted for easy import into GoHighLevel automations.
 
@@ -192,7 +219,8 @@ CRITICAL FORMAT for each email:
 ---`;
 
     const { systemPrompt } = await buildEnhancedSystemPrompt(
-      'email', null, baseSystemPrompt, eventContext + knowledgeContext
+      'email', null, baseSystemPrompt, eventContext + knowledgeContext,
+      eventContext + knowledgeContext + brandVoice
     );
 
     const userPrompt = `Write a complete ${sequenceType} email sequence for Elev8 Montreal.
@@ -219,18 +247,20 @@ Include all emails with proper spacing/timing notes.`;
 // ── LEADS AGENT ──
 export const runLeads = async (req, res, next) => {
   try {
-    const { name, source, industry, actions, notes } = req.body;
+    const { name, source, industry, actions, notes, brandVoiceId } = req.body;
     const eventContext = await getEventContext();
 
     // ── knowledge injected here ──
     const knowledgeContext = await getKnowledgeForAgent('leads');
+    const brandVoice       = await getBrandVoiceContext(brandVoiceId);
 
     const baseSystemPrompt = `You are a lead qualification specialist for high-ticket business events. You analyze lead behavior and profile data to score leads and recommend precise follow-up actions in GoHighLevel.
 
 Scoring: 0-30 = Cold, 31-55 = Warm, 56-80 = Hot, 81-100 = Buyer-Ready`;
 
     const { systemPrompt } = await buildEnhancedSystemPrompt(
-      'leads', null, baseSystemPrompt, eventContext + knowledgeContext
+      'leads', null, baseSystemPrompt, eventContext + knowledgeContext,
+      eventContext + knowledgeContext + brandVoice
     );
 
     const userPrompt = `Qualify this lead for Elev8 Montreal:

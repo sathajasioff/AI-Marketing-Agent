@@ -1,14 +1,54 @@
 import { env } from '../config/env.js';
+import GHLAccount from '../models/GHLAccount.js';
 
 const GHL_BASE_URL = 'https://services.leadconnectorhq.com';
 
-const getHeaders = () => {
-  if (!env.GHL_API_KEY || !env.GHL_LOCATION_ID) {
+const getCredentials = async () => {
+  const activeAccount = await GHLAccount.findOne({ isActive: true }).sort({ updatedAt: -1 });
+
+  if (activeAccount?.apiKey && activeAccount?.locationId) {
+    return {
+      accountId: activeAccount._id,
+      accountName: activeAccount.name,
+      apiKey: activeAccount.apiKey,
+      locationId: activeAccount.locationId,
+    };
+  }
+
+  return {
+    accountId: null,
+    accountName: 'Environment Default',
+    apiKey: env.GHL_API_KEY,
+    locationId: env.GHL_LOCATION_ID,
+  };
+};
+
+export const getActiveGhlCredentials = async () => getCredentials();
+
+export const getActiveLocationId = async () => {
+  const credentials = await getCredentials();
+  return credentials.locationId || null;
+};
+
+export const getActiveLeadScope = async () => {
+  const credentials = await getCredentials();
+
+  if (credentials.accountId) {
+    return { ghlAccountId: credentials.accountId };
+  }
+
+  return { ghlLocationId: credentials.locationId || null, ghlAccountId: null };
+};
+
+const getHeaders = async () => {
+  const credentials = await getCredentials();
+
+  if (!credentials.apiKey || !credentials.locationId) {
     throw new Error('Missing GHL_API_KEY or GHL_LOCATION_ID in environment configuration');
   }
 
   return {
-    Authorization: `Bearer ${env.GHL_API_KEY}`,
+    Authorization: `Bearer ${credentials.apiKey}`,
     Version: '2021-07-28',
     Accept: 'application/json',
     'Content-Type': 'application/json',
@@ -30,10 +70,11 @@ const parseJson = async (response) => {
 };
 
 const request = async (path, options = {}) => {
+  const headers = await getHeaders();
   const response = await fetch(`${GHL_BASE_URL}${path}`, {
     ...options,
     headers: {
-      ...getHeaders(),
+      ...headers,
       ...(options.headers || {}),
     },
   });
@@ -52,8 +93,9 @@ const request = async (path, options = {}) => {
 };
 
 export const getContacts = async ({ limit = 100, page = 1, query = '' } = {}) => {
+  const credentials = await getCredentials();
   const params = new URLSearchParams({
-    locationId: env.GHL_LOCATION_ID,
+    locationId: credentials.locationId,
     limit: String(limit),
     page: String(page),
   });

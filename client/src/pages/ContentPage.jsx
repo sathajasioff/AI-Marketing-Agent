@@ -2,36 +2,43 @@ import { useState } from 'react';
 import Topbar from '../components/layout/Topbar';
 import ContextBar from '../components/ui/ContextBar';
 import OutputCard from '../components/ui/OutputCard';
+import FeedbackBar from '../components/ui/FeedbackBar';
+import BrandVoiceSelector from '../components/ui/BrandVoiceSelector';
 import { useAgent } from '../hooks/useAgent';
 import { runContent } from '../services/api';
-import FeedbackBar from '../components/ui/FeedbackBar';
 
-const TABS = ['meta', 'funnel', 'social', 'vsl'];
+const TABS       = ['meta', 'funnel', 'social', 'vsl'];
 const TAB_LABELS = { meta: 'Meta Ads', funnel: 'Funnel Copy', social: 'Social Posts', vsl: 'VSL Script' };
 
 export default function ContentPage() {
   const { output, loading, error, run, generationId } = useAgent(runContent);
-  const [tab, setTab] = useState('meta');
+
+  const [tab,          setTab]          = useState('meta');
+  const [brandVoiceId, setBrandVoiceId] = useState(null);  // ← moved inside component
 
   // ── Per-tab form state ──
-  const [meta, setMeta] = useState({ adType: 'tof', persona: 'entrepreneur', pain: '', variants: '3' });
+  const [meta,   setMeta]   = useState({ adType: 'tof', persona: 'entrepreneur', pain: '', variants: '3' });
   const [funnel, setFunnel] = useState({ pageType: 'optin', audience: 'Entrepreneurs & Business Owners', headline: '' });
   const [social, setSocial] = useState({ platform: 'Instagram (caption + hashtags)', postType: 'hype', count: '5' });
-  const [vsl, setVsl] = useState({ length: 'medium', audience: 'Entrepreneurs & Business Owners', cta: 'Register for free — capture email' });
+  const [vsl,    setVsl]    = useState({ length: 'medium', audience: 'Entrepreneurs & Business Owners', cta: 'Register for free — capture email' });
 
   const fieldOf = (setter) => (k) => (e) => setter((f) => ({ ...f, [k]: e.target.value }));
 
   const handleSubmit = (e) => {
     e.preventDefault();
     const payloads = { meta, funnel, social, vsl };
-    run({ subType: tab, ...payloads[tab] });
+    run({ subType: tab, ...payloads[tab], brandVoiceId }); // ← brandVoiceId injected
   };
 
   return (
     <>
       <Topbar title="Content & Copy Agent" subtitle="Generate Meta ads, funnel copy, and social content" />
       <div className="page-content fade-in">
-        <ContextBar items={[{ label: 'Platform', value: 'Meta Ads (FB + IG)' }, { label: 'Active Tab', value: TAB_LABELS[tab] }]} />
+        <ContextBar items={[
+          { label: 'Platform', value: 'Meta Ads (FB + IG)' },
+          { label: 'Active Tab', value: TAB_LABELS[tab] },
+          { label: 'Brand Voice', value: brandVoiceId ? 'Active' : 'Default' },
+        ]} />
 
         <div className="agent-tabs">
           {TABS.map((t) => (
@@ -44,6 +51,9 @@ export default function ContentPage() {
         <div className="agent-layout">
           {/* ── Form ── */}
           <form className="card" onSubmit={handleSubmit}>
+
+            {/* ── Brand Voice Selector ── */}
+            <BrandVoiceSelector value={brandVoiceId} onChange={setBrandVoiceId} />
 
             {/* META ADS */}
             {tab === 'meta' && (
@@ -178,20 +188,26 @@ export default function ContentPage() {
           </form>
 
           {/* ── Output ── */}
-          <OutputCard
-            title="Copy Output"
-            output={output}
-            loading={loading}
-            error={error}
-            icon="✍️"
-            placeholder="Select your content type and generate copy"
-          />
-
-          <FeedbackBar
-            generationId={generationId}
-            agentType="content"
-            subType={tab}
-          />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <OutputCard
+              title="Copy Output"
+              output={output}
+              loading={loading}
+              error={error}
+              icon="✍️"
+              generationId={generationId}
+              agentType="content"
+              subType={tab}
+              placeholder="Select your content type and generate copy"
+            />
+            {output && generationId && (
+              <FeedbackBar
+                generationId={generationId}
+                agentType="content"
+                subType={tab}
+              />
+            )}
+          </div>
 
         </div>
       </div>

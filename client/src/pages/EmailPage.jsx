@@ -2,26 +2,29 @@ import { useState } from 'react';
 import Topbar from '../components/layout/Topbar';
 import ContextBar from '../components/ui/ContextBar';
 import OutputCard from '../components/ui/OutputCard';
+import FeedbackBar from '../components/ui/FeedbackBar';
+import BrandVoiceSelector from '../components/ui/BrandVoiceSelector';
 import { useAgent } from '../hooks/useAgent';
 import { runEmail } from '../services/api';
-import FeedbackBar from '../components/ui/FeedbackBar';
 
 export default function EmailPage() {
   const { output, loading, error, run, generationId } = useAgent(runEmail);
 
+  const [brandVoiceId, setBrandVoiceId] = useState(null);
+
   const [form, setForm] = useState({
     sequenceType: 'nurture',
-    segment: 'cold',
-    senderName: 'The Elev8 Team',
-    tone: 'professional',
-    offer: '',
+    segment:      'cold',
+    senderName:   'The Elev8 Team',
+    tone:         'professional',
+    offer:        '',
   });
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    run(form);
+    run({ ...form, brandVoiceId });
   };
 
   return (
@@ -29,8 +32,9 @@ export default function EmailPage() {
       <Topbar title="Email Automation Agent" subtitle="Build GHL-ready email sequences for Elev8 Montreal" />
       <div className="page-content fade-in">
         <ContextBar items={[
-          { label: 'Platform', value: 'GoHighLevel Automations' },
-          { label: 'Format', value: 'Subject + Body per email' },
+          { label: 'Platform',      value: 'GoHighLevel Automations' },
+          { label: 'Format',        value: 'Subject + Body per email' },
+          { label: 'Brand Voice',   value: brandVoiceId ? 'Active' : 'Default' },
         ]} />
 
         <div className="agent-layout">
@@ -39,6 +43,9 @@ export default function EmailPage() {
             <div className="form-card-title">
               Sequence Builder <span className="badge">GHL Automation</span>
             </div>
+
+            {/* ── Brand Voice Selector ── */}
+            <BrandVoiceSelector value={brandVoiceId} onChange={setBrandVoiceId} />
 
             <div className="field">
               <label>Sequence Type</label>
@@ -63,7 +70,11 @@ export default function EmailPage() {
 
             <div className="field">
               <label>Sender Name</label>
-              <input value={form.senderName} onChange={set('senderName')} placeholder="e.g. Sarah from Elev8 Montreal" />
+              <input
+                value={form.senderName}
+                onChange={set('senderName')}
+                placeholder="e.g. Sarah from Elev8 Montreal"
+              />
             </div>
 
             <div className="field">
@@ -78,7 +89,11 @@ export default function EmailPage() {
 
             <div className="field">
               <label>Special Offer / Deadline (optional)</label>
-              <input value={form.offer} onChange={set('offer')} placeholder="e.g. Early bird ends Friday — save $100" />
+              <input
+                value={form.offer}
+                onChange={set('offer')}
+                placeholder="e.g. Early bird ends Friday — save $100"
+              />
             </div>
 
             <button className="btn btn-primary" type="submit" disabled={loading}>
@@ -87,20 +102,25 @@ export default function EmailPage() {
           </form>
 
           {/* ── Output ── */}
-          <OutputCard
-            title="Email Sequence Output"
-            output={output}
-            loading={loading}
-            error={error}
-            icon="📧"
-            placeholder="Choose your sequence type and generate GHL-ready emails"
-          />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <OutputCard
+              title="Email Sequence Output"
+              output={output}
+              loading={loading}
+              error={error}
+              icon="📧"
+              generationId={generationId}
+              agentType="email"
+              placeholder="Choose your sequence type and generate GHL-ready emails"
+            />
+            {output && generationId && (
+              <FeedbackBar
+                generationId={generationId}
+                agentType="email"
+              />
+            )}
+          </div>
 
-          {/* // add after </OutputCard> */}
-          <FeedbackBar
-            generationId={generationId}
-            agentType="email"
-          />
         </div>
       </div>
     </>

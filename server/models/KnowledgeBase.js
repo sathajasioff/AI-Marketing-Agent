@@ -11,6 +11,7 @@ const knowledgeBaseSchema = new mongoose.Schema(
       type: String,
       enum: [
         'audience_insight',   // what you know about your audience
+        'brand_voice',        // reusable expert voice/profile for all agents
         'proven_hook',        // ad hooks that got high CTR
         'failed_hook',        // hooks that flopped
         'objection',          // common objections you hear
