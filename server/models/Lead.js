@@ -2,7 +2,9 @@ import mongoose from 'mongoose';
 
 const leadSchema = new mongoose.Schema(
   {
-    ghlContactId: { type: String, required: true, unique: true },
+    ghlContactId: { type: String, required: true },
+    ghlAccountId: { type: mongoose.Schema.Types.ObjectId, ref: 'GHLAccount', default: null, index: true },
+    ghlAccountName: { type: String, default: '' },
     ghlLocationId: { type: String, default: null, index: true },
     firstName:    { type: String, default: '' },
     lastName:     { type: String, default: '' },
@@ -47,6 +49,7 @@ leadSchema.virtual('fullName').get(function () {
 leadSchema.index({ aiScore: -1 });
 leadSchema.index({ aiSegment: 1 });
 leadSchema.index({ outcome: 1 });
+leadSchema.index({ ghlContactId: 1, ghlAccountId: 1 }, { unique: true });
 
 const Lead = mongoose.model('Lead', leadSchema);
 export default Lead;

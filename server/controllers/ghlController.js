@@ -1,12 +1,14 @@
 import Anthropic from '@anthropic-ai/sdk';
 import Lead from '../models/Lead.js';
 import EventSettings from '../models/EventSettings.js';
-import { env } from '../config/env.js';
 import {
   getContacts,
   addContactTags,
   addContactNote,
   addContactToWorkflow,
+  getActiveGhlCredentials,
+  getActiveLocationId,
+  getActiveLeadScope,
 } from '../services/ghlService.js';
 import { recordPromptUse, hashPrompt } from '../services/learningService.js';
 
@@ -15,7 +17,7 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 export const getLeads = async (req, res, next) => {
   try {
     const { segment, outcome, limit = 100, page = 1 } = req.query;
-    const query = { ghlLocationId: env.GHL_LOCATION_ID };
+    const query = await getActiveLeadScope();
     if (segment) query.aiSegment = segment;
     if (outcome) query.outcome   = outcome;
 
@@ -31,6 +33,11 @@ export const getLeads = async (req, res, next) => {
 
 export const syncLeadsFromGHL = async (req, res, next) => {
   try {
+    const credentials = await getActiveGhlCredentials();
+    if (!credentials.locationId) {
+      return res.status(400).json({ success: false, message: 'No active GHL account selected' });
+    }
+
     const batchSize = Math.min(Number(req.body?.batchSize) || 100, 250);
     let page = 1;
     let synced = 0;
@@ -52,7 +59,9 @@ export const syncLeadsFromGHL = async (req, res, next) => {
             update: {
               $set: {
                 ghlContactId: contact.id,
-                ghlLocationId: env.GHL_LOCATION_ID,
+                ghlAccountId: credentials.accountId || null,
+                ghlAccountName: credentials.accountName || '',
+                ghlLocationId: credentials.locationId,
                 firstName: contact.firstName || '',
                 lastName: contact.lastName || '',
                 email: contact.email || '',
@@ -237,7 +246,7 @@ export const setLeadOutcome = async (req, res, next) => {
 
 export const getPipelineStats = async (req, res, next) => {
   try {
-    const baseQuery = { ghlLocationId: env.GHL_LOCATION_ID };
+    const baseQuery = await getActiveLeadScope();
     const [total, bySegment, byOutcome, withScore] = await Promise.all([
       Lead.countDocuments(baseQuery),
       Lead.aggregate([
@@ -251,5 +260,92 @@ export const getPipelineStats = async (req, res, next) => {
       Lead.countDocuments({ ...baseQuery, aiScore: { $ne: null } }),
     ]);
     res.json({ success: true, stats: { total, bySegment, byOutcome, withScore } });
+  } catch (err) { next(err); }
+};
+
+export const getDashboardData = async (req, res, next) => {
+  try {
+    const baseQuery = await getActiveLeadScope();
+
+    const [
+      totalLeads,
+      bySegment,
+      bySource,
+      byOutcome,
+      recentLeads,
+      qualifiedCount,
+      conversionTrend,
+    ] = await Promise.all([
+      Lead.countDocuments(baseQuery),
+      Lead.aggregate([
+        { $match: baseQuery },
+        { $group: { _id: '$aiSegment', count: { $sum: 1 }, avgScore: { $avg: '$aiScore' } } },
+        { $sort: { count: -1 } },
+      ]),
+      Lead.aggregate([
+        { $match: { ...baseQuery, source: { $ne: '' } } },
+        { $group: { _id: '$source', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+        { $limit: 6 },
+      ]),
+      Lead.aggregate([
+        { $match: baseQuery },
+        { $group: { _id: '$outcome', count: { $sum: 1 } } },
+      ]),
+      Lead.find(baseQuery)
+        .sort({ createdAt: -1 })
+        .limit(6)
+        .select('firstName lastName email aiScore aiSegment source createdAt outcome'),
+      Lead.countDocuments({ ...baseQuery, aiScore: { $ne: null } }),
+      Lead.aggregate([
+        {
+          $match: {
+            ...baseQuery,
+            createdAt: { $gte: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000) },
+          },
+        },
+        {
+          $group: {
+            _id: {
+              $dateToString: { format: '%Y-%m-%d', date: '$createdAt' },
+            },
+            count: { $sum: 1 },
+            qualified: { $sum: { $cond: [{ $ne: ['$aiScore', null] }, 1, 0] } },
+            converted: { $sum: { $cond: [{ $eq: ['$outcome', 'converted'] }, 1, 0] } },
+          },
+        },
+        { $sort: { _id: 1 } },
+      ]),
+    ]);
+
+    const converted = byOutcome.find((o) => o._id === 'converted')?.count || 0;
+    const convRate = qualifiedCount > 0 ? Math.round((converted / qualifiedCount) * 100) : 0;
+    const hotBuyer =
+      (bySegment.find((s) => s._id === 'hot')?.count || 0) +
+      (bySegment.find((s) => s._id === 'buyer')?.count || 0);
+
+    const avgScore = await Lead.aggregate([
+      { $match: { ...baseQuery, aiScore: { $ne: null } } },
+      { $group: { _id: null, avg: { $avg: '$aiScore' } } },
+    ]).then((rows) => Math.round(rows[0]?.avg || 0));
+
+    res.json({
+      success: true,
+      data: {
+        stats: {
+          totalLeads,
+          qualifiedCount,
+          converted,
+          hotBuyer,
+          convRate,
+          avgScore,
+        },
+        bySegment,
+        bySource,
+        byOutcome,
+        recentLeads,
+        conversionTrend,
+      },
+    });
   } catch (err) { next(err); }
 };

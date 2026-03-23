@@ -8,6 +8,7 @@ import {
   triggerGHLWorkflow,
   setLeadOutcome,
   getPipelineStats,
+  getDashboardData,
 } from '../controllers/ghlController.js';
 
 const router = express.Router();
@@ -20,5 +21,6 @@ router.post('/push-tags/:id',        pushTagsToGHL);
 router.post('/push-note/:id',        pushNoteToGHL);
 router.post('/trigger-workflow/:id', triggerGHLWorkflow);
 router.patch('/outcome/:id',         setLeadOutcome);
+router.get('/dashboard', getDashboardData);
 
 export default router;
