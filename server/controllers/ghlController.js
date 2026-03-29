@@ -14,20 +14,47 @@ import { recordPromptUse, hashPrompt } from '../services/learningService.js';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+const buildDedupedLeadPipeline = (baseQuery = {}) => ([
+  { $match: baseQuery },
+  // Keep the newest copy when historical duplicate lead docs exist for the same GHL contact.
+  { $sort: { lastSyncedAt: -1, updatedAt: -1, createdAt: -1, _id: -1 } },
+  { $group: { _id: '$ghlContactId', doc: { $first: '$$ROOT' } } },
+  { $replaceRoot: { newRoot: '$doc' } },
+]);
+
 export const getLeads = async (req, res, next) => {
   try {
     const { segment, outcome, limit = 100, page = 1 } = req.query;
-    const query = await getActiveLeadScope();
-    if (segment) query.aiSegment = segment;
-    if (outcome) query.outcome   = outcome;
+    const pageNumber = Math.max(1, Number(page) || 1);
+    const pageSize = Math.max(1, Number(limit) || 100);
+    const baseQuery = await getActiveLeadScope();
 
-    const total = await Lead.countDocuments(query);
-    const leads = await Lead.find(query)
-      .sort({ aiScore: -1, createdAt: -1 })
-      .limit(Number(limit))
-      .skip((Number(page) - 1) * Number(limit));
+    const filteredMatch = {};
+    if (segment) filteredMatch.aiSegment = segment;
+    if (outcome) filteredMatch.outcome = outcome;
 
-    res.json({ success: true, total, page: Number(page), limit: Number(limit), leads });
+    const [result] = await Lead.aggregate([
+      ...buildDedupedLeadPipeline(baseQuery),
+      ...(Object.keys(filteredMatch).length ? [{ $match: filteredMatch }] : []),
+      {
+        $facet: {
+          metadata: [{ $count: 'total' }],
+          leads: [
+            { $sort: { aiScore: -1, createdAt: -1, _id: -1 } },
+            { $skip: (pageNumber - 1) * pageSize },
+            { $limit: pageSize },
+          ],
+        },
+      },
+    ]);
+
+    res.json({
+      success: true,
+      total: result?.metadata?.[0]?.total || 0,
+      page: pageNumber,
+      limit: pageSize,
+      leads: result?.leads || [],
+    });
   } catch (err) { next(err); }
 };
 
@@ -247,19 +274,30 @@ export const setLeadOutcome = async (req, res, next) => {
 export const getPipelineStats = async (req, res, next) => {
   try {
     const baseQuery = await getActiveLeadScope();
-    const [total, bySegment, byOutcome, withScore] = await Promise.all([
-      Lead.countDocuments(baseQuery),
-      Lead.aggregate([
-        { $match: baseQuery },
-        { $group: { _id: '$aiSegment', count: { $sum: 1 } } },
-      ]),
-      Lead.aggregate([
-        { $match: baseQuery },
-        { $group: { _id: '$outcome', count: { $sum: 1 } } },
-      ]),
-      Lead.countDocuments({ ...baseQuery, aiScore: { $ne: null } }),
+    const [stats] = await Lead.aggregate([
+      ...buildDedupedLeadPipeline(baseQuery),
+      {
+        $facet: {
+          total: [{ $count: 'count' }],
+          bySegment: [{ $group: { _id: '$aiSegment', count: { $sum: 1 } } }],
+          byOutcome: [{ $group: { _id: '$outcome', count: { $sum: 1 } } }],
+          withScore: [
+            { $match: { aiScore: { $ne: null } } },
+            { $count: 'count' },
+          ],
+        },
+      },
     ]);
-    res.json({ success: true, stats: { total, bySegment, byOutcome, withScore } });
+
+    res.json({
+      success: true,
+      stats: {
+        total: stats?.total?.[0]?.count || 0,
+        bySegment: stats?.bySegment || [],
+        byOutcome: stats?.byOutcome || [],
+        withScore: stats?.withScore?.[0]?.count || 0,
+      },
+    });
   } catch (err) { next(err); }
 };
 
@@ -267,67 +305,70 @@ export const getDashboardData = async (req, res, next) => {
   try {
     const baseQuery = await getActiveLeadScope();
 
-    const [
-      totalLeads,
-      bySegment,
-      bySource,
-      byOutcome,
-      recentLeads,
-      qualifiedCount,
-      conversionTrend,
-    ] = await Promise.all([
-      Lead.countDocuments(baseQuery),
-      Lead.aggregate([
-        { $match: baseQuery },
-        { $group: { _id: '$aiSegment', count: { $sum: 1 }, avgScore: { $avg: '$aiScore' } } },
-        { $sort: { count: -1 } },
-      ]),
-      Lead.aggregate([
-        { $match: { ...baseQuery, source: { $ne: '' } } },
-        { $group: { _id: '$source', count: { $sum: 1 } } },
-        { $sort: { count: -1 } },
-        { $limit: 6 },
-      ]),
-      Lead.aggregate([
-        { $match: baseQuery },
-        { $group: { _id: '$outcome', count: { $sum: 1 } } },
-      ]),
-      Lead.find(baseQuery)
-        .sort({ createdAt: -1 })
-        .limit(6)
-        .select('firstName lastName email aiScore aiSegment source createdAt outcome'),
-      Lead.countDocuments({ ...baseQuery, aiScore: { $ne: null } }),
-      Lead.aggregate([
-        {
-          $match: {
-            ...baseQuery,
-            createdAt: { $gte: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000) },
-          },
-        },
-        {
-          $group: {
-            _id: {
-              $dateToString: { format: '%Y-%m-%d', date: '$createdAt' },
+    const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+    const [dashboard] = await Lead.aggregate([
+      ...buildDedupedLeadPipeline(baseQuery),
+      {
+        $facet: {
+          totalLeads: [{ $count: 'count' }],
+          bySegment: [
+            { $group: { _id: '$aiSegment', count: { $sum: 1 }, avgScore: { $avg: '$aiScore' } } },
+            { $sort: { count: -1 } },
+          ],
+          bySource: [
+            { $match: { source: { $ne: '' } } },
+            { $group: { _id: '$source', count: { $sum: 1 } } },
+            { $sort: { count: -1 } },
+            { $limit: 6 },
+          ],
+          byOutcome: [
+            { $group: { _id: '$outcome', count: { $sum: 1 } } },
+          ],
+          recentLeads: [
+            { $sort: { createdAt: -1, _id: -1 } },
+            { $limit: 6 },
+            { $project: { firstName: 1, lastName: 1, email: 1, aiScore: 1, aiSegment: 1, source: 1, createdAt: 1, outcome: 1 } },
+          ],
+          qualifiedCount: [
+            { $match: { aiScore: { $ne: null } } },
+            { $count: 'count' },
+          ],
+          conversionTrend: [
+            { $match: { createdAt: { $gte: fourteenDaysAgo } } },
+            {
+              $group: {
+                _id: {
+                  $dateToString: { format: '%Y-%m-%d', date: '$createdAt' },
+                },
+                count: { $sum: 1 },
+                qualified: { $sum: { $cond: [{ $ne: ['$aiScore', null] }, 1, 0] } },
+                converted: { $sum: { $cond: [{ $eq: ['$outcome', 'converted'] }, 1, 0] } },
+              },
             },
-            count: { $sum: 1 },
-            qualified: { $sum: { $cond: [{ $ne: ['$aiScore', null] }, 1, 0] } },
-            converted: { $sum: { $cond: [{ $eq: ['$outcome', 'converted'] }, 1, 0] } },
-          },
+            { $sort: { _id: 1 } },
+          ],
+          avgScore: [
+            { $match: { aiScore: { $ne: null } } },
+            { $group: { _id: null, avg: { $avg: '$aiScore' } } },
+          ],
         },
-        { $sort: { _id: 1 } },
-      ]),
+      },
     ]);
+
+    const totalLeads = dashboard?.totalLeads?.[0]?.count || 0;
+    const bySegment = dashboard?.bySegment || [];
+    const bySource = dashboard?.bySource || [];
+    const byOutcome = dashboard?.byOutcome || [];
+    const recentLeads = dashboard?.recentLeads || [];
+    const qualifiedCount = dashboard?.qualifiedCount?.[0]?.count || 0;
+    const conversionTrend = dashboard?.conversionTrend || [];
 
     const converted = byOutcome.find((o) => o._id === 'converted')?.count || 0;
     const convRate = qualifiedCount > 0 ? Math.round((converted / qualifiedCount) * 100) : 0;
     const hotBuyer =
       (bySegment.find((s) => s._id === 'hot')?.count || 0) +
       (bySegment.find((s) => s._id === 'buyer')?.count || 0);
-
-    const avgScore = await Lead.aggregate([
-      { $match: { ...baseQuery, aiScore: { $ne: null } } },
-      { $group: { _id: null, avg: { $avg: '$aiScore' } } },
-    ]).then((rows) => Math.round(rows[0]?.avg || 0));
+    const avgScore = Math.round(dashboard?.avgScore?.[0]?.avg || 0);
 
     res.json({
       success: true,
