@@ -3,15 +3,15 @@ import { getMetaCredentials } from '../controllers/integrationController.js';
 
 const META_BASE = 'https://graph.facebook.com/v19.0';
 
-const getConfig = async () => {
-  const creds = await getMetaCredentials();
+const getConfig = async (clientId) => {
+  const creds = await getMetaCredentials(clientId);
   if (!creds.accessToken) throw new Error('Meta access token not configured. Add it in Integrations page.');
   if (!creds.adAccountId) throw new Error('Meta Ad Account ID not configured. Add it in Integrations page.');
   return { token: creds.accessToken, account: `act_${creds.adAccountId}` };
 };
 
-export const getAccountSummary = async ({ datePreset = 'last_14d' } = {}) => {
-  const { token, account } = await getConfig();
+export const getAccountSummary = async ({ datePreset = 'last_14d', clientId } = {}) => {
+  const { token, account } = await getConfig(clientId);
   const { data } = await axios.get(`${META_BASE}/${account}/insights`, {
     params: {
       access_token: token,
@@ -38,8 +38,8 @@ export const getAccountSummary = async ({ datePreset = 'last_14d' } = {}) => {
   };
 };
 
-export const getCampaignInsights = async ({ datePreset = 'last_14d' } = {}) => {
-  const { token, account } = await getConfig();
+export const getCampaignInsights = async ({ datePreset = 'last_14d', clientId } = {}) => {
+  const { token, account } = await getConfig(clientId);
   const { data } = await axios.get(`${META_BASE}/${account}/insights`, {
     params: {
       access_token: token,
@@ -53,8 +53,8 @@ export const getCampaignInsights = async ({ datePreset = 'last_14d' } = {}) => {
   return data.data || [];
 };
 
-export const getDailyInsights = async ({ days = 14 } = {}) => {
-  const { token, account } = await getConfig();
+export const getDailyInsights = async ({ days = 14, clientId } = {}) => {
+  const { token, account } = await getConfig(clientId);
   const since = new Date(Date.now() - days * 86400000).toISOString().split('T')[0];
   const until = new Date().toISOString().split('T')[0];
   const { data } = await axios.get(`${META_BASE}/${account}/insights`, {
@@ -71,8 +71,8 @@ export const getDailyInsights = async ({ days = 14 } = {}) => {
   return data.data || [];
 };
 
-export const getTopAds = async ({ datePreset = 'last_14d', limit = 5 } = {}) => {
-  const { token, account } = await getConfig();
+export const getTopAds = async ({ datePreset = 'last_14d', limit = 5, clientId } = {}) => {
+  const { token, account } = await getConfig(clientId);
   const { data } = await axios.get(`${META_BASE}/${account}/insights`, {
     params: {
       access_token: token,

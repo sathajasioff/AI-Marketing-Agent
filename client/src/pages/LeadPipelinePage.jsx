@@ -60,8 +60,8 @@ export default function LeadPipelinePage() {
       showToast(`✓ ${data.message}`);
       setPage(1);
       fetchLeads();
-    } catch {
-      showToast('⚠ GHL sync failed — check your API key');
+    } catch (e) {
+      showToast(`⚠ ${e.response?.data?.message || 'GHL sync failed'}`);
     } finally {
       setSyncing(false);
     }

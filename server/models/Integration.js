@@ -2,7 +2,12 @@ import mongoose from 'mongoose';
 
 const integrationSchema = new mongoose.Schema(
   {
-    singleton:       { type: String, default: 'main', unique: true },
+    clientId: {
+      type:     mongoose.Schema.Types.ObjectId,
+      ref:      'Client',
+      required: true,
+      index:    true,
+    },
     metaAccessToken: { type: String, default: '' },
     metaAdAccountId: { type: String, default: '' },
     metaConnected:   { type: Boolean, default: false },
@@ -11,6 +16,9 @@ const integrationSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+// One integration document per client
+integrationSchema.index({ clientId: 1 }, { unique: true });
 
 const Integration = mongoose.model('Integration', integrationSchema);
 export default Integration;

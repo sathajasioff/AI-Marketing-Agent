@@ -1,5 +1,7 @@
 import mongoose from 'mongoose';
 
+
+
 const generationSchema = new mongoose.Schema(
   {
     agentType: {
@@ -34,6 +36,12 @@ const generationSchema = new mongoose.Schema(
     promptHash: {
       type: String,
       default: null,
+    },
+    clientId: {
+      type:     mongoose.Schema.Types.ObjectId,
+      ref:      'Client',
+      required: true,
+      index:    true,
     },
   },
   { timestamps: true }

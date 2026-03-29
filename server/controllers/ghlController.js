@@ -7,7 +7,6 @@ import {
   addContactNote,
   addContactToWorkflow,
   getActiveGhlCredentials,
-  getActiveLocationId,
   getActiveLeadScope,
 } from '../services/ghlService.js';
 import { recordPromptUse, hashPrompt } from '../services/learningService.js';
@@ -22,12 +21,17 @@ const buildDedupedLeadPipeline = (baseQuery = {}) => ([
   { $replaceRoot: { newRoot: '$doc' } },
 ]);
 
+const getScopedLeadScope = async (clientId) => {
+  const baseQuery = await getActiveLeadScope();
+  return clientId ? { ...baseQuery, clientId } : baseQuery;
+};
+
 export const getLeads = async (req, res, next) => {
   try {
     const { segment, outcome, limit = 100, page = 1 } = req.query;
     const pageNumber = Math.max(1, Number(page) || 1);
     const pageSize = Math.max(1, Number(limit) || 100);
-    const baseQuery = await getActiveLeadScope();
+    const baseQuery = await getScopedLeadScope(req.clientId);
 
     const filteredMatch = {};
     if (segment) filteredMatch.aiSegment = segment;
@@ -58,43 +62,48 @@ export const getLeads = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+// ── POST /api/ghl/sync ──
 export const syncLeadsFromGHL = async (req, res, next) => {
   try {
+    const batchSize  = Math.min(Number(req.body?.batchSize) || 100, 250);
     const credentials = await getActiveGhlCredentials();
-    if (!credentials.locationId) {
-      return res.status(400).json({ success: false, message: 'No active GHL account selected' });
-    }
-
-    const batchSize = Math.min(Number(req.body?.batchSize) || 100, 250);
-    let page = 1;
-    let synced = 0;
-    let created = 0;
-    let batchCount = 0;
+    const leadScope = await getActiveLeadScope();
+    let page         = 1;
+    let synced       = 0;
+    let created      = 0;
+    let batchCount   = 0;
 
     while (true) {
-      const contacts = await getContacts({ limit: batchSize, page });
+      const contacts = await getContacts({ limit: batchSize, page, clientId: req.clientId });
+      if (!contacts.length) break;
 
-      if (!contacts.length) {
-        break;
-      }
+      const uniqueContacts = Array.from(
+        new Map(contacts.filter((contact) => contact?.id).map((contact) => [contact.id, contact])).values()
+      );
 
-      const operations = contacts
-        .filter((contact) => contact?.id)
-        .map((contact) => ({
+      const operations = uniqueContacts
+        .map(contact => ({
           updateOne: {
-            filter: { ghlContactId: contact.id },
+            filter: {
+              ghlContactId: contact.id,
+              clientId:     req.clientId,              // ← scoped
+              ...(leadScope.ghlAccountId
+                ? { ghlAccountId: leadScope.ghlAccountId }
+                : { ghlLocationId: leadScope.ghlLocationId }),
+            },
             update: {
               $set: {
+                clientId:     req.clientId,            // ← scoped
                 ghlContactId: contact.id,
-                ghlAccountId: credentials.accountId || null,
+                ghlAccountId: leadScope.ghlAccountId,
                 ghlAccountName: credentials.accountName || '',
-                ghlLocationId: credentials.locationId,
-                firstName: contact.firstName || '',
-                lastName: contact.lastName || '',
-                email: contact.email || '',
-                phone: contact.phone || '',
-                tags: contact.tags || [],
-                source: contact.source || '',
+                ghlLocationId: leadScope.ghlLocationId,
+                firstName:    contact.firstName || '',
+                lastName:     contact.lastName  || '',
+                email:        contact.email     || '',
+                phone:        contact.phone     || '',
+                tags:         contact.tags      || [],
+                source:       contact.source    || '',
                 ghlCreatedAt: contact.dateAdded ? new Date(contact.dateAdded) : null,
                 lastSyncedAt: new Date(),
               },
@@ -108,31 +117,33 @@ export const syncLeadsFromGHL = async (req, res, next) => {
         created += result.upsertedCount || 0;
       }
 
-      synced += contacts.length;
+      synced     += uniqueContacts.length;
       batchCount += 1;
-      page += 1;
+      page       += 1;
 
-      if (contacts.length < batchSize) {
-        break;
-      }
+      if (contacts.length < batchSize) break;
     }
 
     res.json({
-      success: true,
+      success:  true,
       synced,
       created,
-      batches: batchCount,
-      message: `Synced ${synced} contacts from GHL (${created} new)`,
+      batches:  batchCount,
+      message:  `Synced ${synced} contacts from GHL (${created} new)`,
     });
   } catch (err) { next(err); }
 };
 
+// ── POST /api/ghl/qualify/:id ──
 export const qualifyLead = async (req, res, next) => {
   try {
-    const lead = await Lead.findById(req.params.id);
+    const lead = await Lead.findOne({
+      _id:      req.params.id,
+      clientId: req.clientId,                          // ← scoped
+    });
     if (!lead) return res.status(404).json({ success: false, message: 'Lead not found' });
 
-    const settings = await EventSettings.findOne({ singleton: 'elev8' });
+    const settings     = await EventSettings.findOne({ clientId: req.clientId }); // ← scoped
     const eventContext = settings
       ? `EVENT: ${settings.eventName}\nTICKET PRICE: ${settings.ticketPrice}\nAUDIENCE: ${settings.targetAudience}`
       : 'EVENT: Elev8 Montreal\nTICKET PRICE: $497';
@@ -163,34 +174,34 @@ Source: ${lead.source || 'unknown'}`;
     const promptHash = hashPrompt(systemPrompt, userPrompt);
 
     const message = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model:      'claude-sonnet-4-20250514',
       max_tokens: 800,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userPrompt }],
+      system:     systemPrompt,
+      messages:   [{ role: 'user', content: userPrompt }],
     });
 
-    const output = message.content.map((b) => b.text || '').join('');
+    const output = message.content.map(b => b.text || '').join('');
 
     const score    = parseInt(output.match(/SCORE:\s*(\d+)/)?.[1] || '0');
     const segment  = output.match(/SEGMENT:\s*(\w+)/)?.[1]?.toLowerCase() || 'cold';
     const tagsLine = output.match(/GHL_TAGS:\s*(.+)/)?.[1] || '';
-    const recommendedTags = tagsLine.split(',').map((t) => t.trim()).filter(Boolean);
+    const recommendedTags = tagsLine.split(',').map(t => t.trim()).filter(Boolean);
     const flowLine =
       output.match(/GHL_TRIGGER_TAG:\s*(.+)/)?.[1]?.trim() ||
       output.match(/GHL_SEQUENCE:\s*(.+)/)?.[1]?.trim() ||
       null;
-    const recommendedFlow = flowLine && flowLine.toLowerCase() !== 'none' ? flowLine : null;
+    const recommendedFlow    = flowLine && flowLine.toLowerCase() !== 'none' ? flowLine : null;
+    const validSegments      = ['cold', 'warm', 'hot', 'buyer'];
+    const validSegment       = validSegments.includes(segment) ? segment : 'cold';
 
-    const validSegments = ['cold', 'warm', 'hot', 'buyer'];
-    const validSegment  = validSegments.includes(segment) ? segment : 'cold';
-
-    const updated = await Lead.findByIdAndUpdate(
-      req.params.id,
+    const updated = await Lead.findOneAndUpdate(
+      { _id: req.params.id, clientId: req.clientId },  // ← scoped
       { aiScore: score, aiSegment: validSegment, aiOutput: output, recommendedTags, recommendedFlow, promptHash, qualifiedAt: new Date() },
       { new: true }
     );
 
     await recordPromptUse({
+      clientId:  req.clientId,                         // ← scoped
       agentType: 'leads',
       promptHash,
       promptSnapshot: { systemPrompt, userPromptTemplate: userPrompt },
@@ -200,61 +211,72 @@ Source: ${lead.source || 'unknown'}`;
   } catch (err) { next(err); }
 };
 
+// ── POST /api/ghl/push-tags/:id ──
 export const pushTagsToGHL = async (req, res, next) => {
   try {
-    const lead = await Lead.findById(req.params.id);
-    if (!lead)                     return res.status(404).json({ success: false, message: 'Lead not found' });
-    if (!lead.ghlContactId)        return res.status(400).json({ success: false, message: 'No GHL contact ID' });
+    const lead = await Lead.findOne({ _id: req.params.id, clientId: req.clientId }); // ← scoped
+    if (!lead)                         return res.status(404).json({ success: false, message: 'Lead not found' });
+    if (!lead.ghlContactId)            return res.status(400).json({ success: false, message: 'No GHL contact ID' });
     if (!lead.recommendedTags?.length) return res.status(400).json({ success: false, message: 'No tags to push' });
 
-    await addContactTags(lead.ghlContactId, lead.recommendedTags);
-    await Lead.findByIdAndUpdate(req.params.id, { tagsPushedToGHL: true });
+    await addContactTags(lead.ghlContactId, lead.recommendedTags, req.clientId);
+    await Lead.findOneAndUpdate(
+      { _id: req.params.id, clientId: req.clientId },  // ← scoped
+      { tagsPushedToGHL: true }
+    );
 
     res.json({ success: true, message: `Pushed ${lead.recommendedTags.length} tags to GHL`, tags: lead.recommendedTags });
   } catch (err) { next(err); }
 };
 
+// ── POST /api/ghl/push-note/:id ──
 export const pushNoteToGHL = async (req, res, next) => {
   try {
-    const lead = await Lead.findById(req.params.id);
+    const lead = await Lead.findOne({ _id: req.params.id, clientId: req.clientId }); // ← scoped
     if (!lead)              return res.status(404).json({ success: false, message: 'Lead not found' });
     if (!lead.ghlContactId) return res.status(400).json({ success: false, message: 'No GHL contact ID' });
 
     const noteBody = `[Elev8 AI Agent — ${new Date().toLocaleDateString()}]\n\nAI Score: ${lead.aiScore}/100 (${lead.aiSegment?.toUpperCase()})\n\n${lead.aiOutput}`;
-    await addContactNote(lead.ghlContactId, noteBody);
-    await Lead.findByIdAndUpdate(req.params.id, { notePushedToGHL: true });
+    await addContactNote(lead.ghlContactId, noteBody, req.clientId);
+    await Lead.findOneAndUpdate(
+      { _id: req.params.id, clientId: req.clientId },  // ← scoped
+      { notePushedToGHL: true }
+    );
 
     res.json({ success: true, message: 'AI qualification note pushed to GHL' });
   } catch (err) { next(err); }
 };
 
+// ── POST /api/ghl/trigger-workflow/:id ──
 export const triggerGHLWorkflow = async (req, res, next) => {
   try {
     const { workflowId, workflowTag } = req.body;
-    if (!workflowId && !workflowTag) {
+    if (!workflowId && !workflowTag)
       return res.status(400).json({ success: false, message: 'workflowId or workflowTag is required' });
-    }
 
-    const lead = await Lead.findById(req.params.id);
+    const lead = await Lead.findOne({ _id: req.params.id, clientId: req.clientId }); // ← scoped
     if (!lead)              return res.status(404).json({ success: false, message: 'Lead not found' });
     if (!lead.ghlContactId) return res.status(400).json({ success: false, message: 'No GHL contact ID' });
 
     let message = '';
-
     if (workflowId) {
-      await addContactToWorkflow(lead.ghlContactId, workflowId);
+      await addContactToWorkflow(lead.ghlContactId, workflowId, req.clientId);
       message = `Contact added to workflow ${workflowId}`;
     } else {
-      await addContactTags(lead.ghlContactId, [workflowTag]);
+      await addContactTags(lead.ghlContactId, [workflowTag], req.clientId);
       message = `Workflow trigger tag applied: ${workflowTag}`;
     }
 
-    await Lead.findByIdAndUpdate(req.params.id, { workflowTriggered: true });
+    await Lead.findOneAndUpdate(
+      { _id: req.params.id, clientId: req.clientId },  // ← scoped
+      { workflowTriggered: true }
+    );
 
     res.json({ success: true, message });
   } catch (err) { next(err); }
 };
 
+// ── PATCH /api/ghl/outcome/:id ──
 export const setLeadOutcome = async (req, res, next) => {
   try {
     const { outcome, note } = req.body;
@@ -262,18 +284,20 @@ export const setLeadOutcome = async (req, res, next) => {
     if (!validOutcomes.includes(outcome))
       return res.status(400).json({ success: false, message: 'Invalid outcome' });
 
-    const lead = await Lead.findByIdAndUpdate(
-      req.params.id,
+    const lead = await Lead.findOneAndUpdate(
+      { _id: req.params.id, clientId: req.clientId },  // ← scoped
       { outcome, outcomeNote: note || '', outcomeSetAt: new Date() },
       { new: true }
     );
+    if (!lead) return res.status(404).json({ success: false, message: 'Lead not found' });
     res.json({ success: true, lead });
   } catch (err) { next(err); }
 };
 
+// ── GET /api/ghl/stats ──
 export const getPipelineStats = async (req, res, next) => {
   try {
-    const baseQuery = await getActiveLeadScope();
+    const baseQuery = await getScopedLeadScope(req.clientId);
     const [stats] = await Lead.aggregate([
       ...buildDedupedLeadPipeline(baseQuery),
       {
@@ -301,9 +325,10 @@ export const getPipelineStats = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+// ── GET /api/ghl/dashboard ──
 export const getDashboardData = async (req, res, next) => {
   try {
-    const baseQuery = await getActiveLeadScope();
+    const baseQuery = await getScopedLeadScope(req.clientId);
 
     const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
     const [dashboard] = await Lead.aggregate([
@@ -373,14 +398,7 @@ export const getDashboardData = async (req, res, next) => {
     res.json({
       success: true,
       data: {
-        stats: {
-          totalLeads,
-          qualifiedCount,
-          converted,
-          hotBuyer,
-          convRate,
-          avgScore,
-        },
+        stats: { totalLeads, qualifiedCount, converted, hotBuyer, convRate, avgScore },
         bySegment,
         bySource,
         byOutcome,

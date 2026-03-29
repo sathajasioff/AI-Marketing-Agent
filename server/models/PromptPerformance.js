@@ -14,6 +14,12 @@ const promptPerformanceSchema = new mongoose.Schema(
       systemPrompt:      { type: String, default: '' },
       userPromptTemplate: { type: String, default: '' },
     },
+    clientId: {
+      type:     mongoose.Schema.Types.ObjectId,
+      ref:      'Client',
+      required: true,
+      index:    true,
+    },
 
     totalUses:   { type: Number, default: 0 },
     conversions: { type: Number, default: 0 },

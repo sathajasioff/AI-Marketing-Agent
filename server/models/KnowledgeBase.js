@@ -7,6 +7,12 @@ const knowledgeBaseSchema = new mongoose.Schema(
       enum: ['strategy', 'content', 'email', 'leads', 'all'],
       required: true,
     },
+    clientId: {
+      type:     mongoose.Schema.Types.ObjectId,
+      ref:      'Client',
+      required: true,
+      index:    true,
+    },
     category: {
       type: String,
       enum: [
