@@ -1,21 +1,24 @@
 import Client from '../models/Client.js';
 import { generateToken } from '../middleware/auth.js';
 
+const normalizeEmail = (email = '') => email.trim().toLowerCase();
+
 // ── POST /api/auth/register ──
 export const register = async (req, res, next) => {
   try {
     const { name, email, password, companyName } = req.body;
+    const normalizedEmail = normalizeEmail(email);
 
-    if (!name || !email || !password) {
+    if (!name || !normalizedEmail || !password) {
       return res.status(400).json({ success: false, message: 'Name, email and password are required' });
     }
 
-    const exists = await Client.findOne({ email });
+    const exists = await Client.findOne({ email: normalizedEmail });
     if (exists) {
       return res.status(400).json({ success: false, message: 'Email already registered' });
     }
 
-    const client = await Client.create({ name, email, password, companyName });
+    const client = await Client.create({ name, email: normalizedEmail, password, companyName });
     const token  = generateToken(client._id);
 
     res.status(201).json({
@@ -31,12 +34,13 @@ export const register = async (req, res, next) => {
 export const login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
+    const normalizedEmail = normalizeEmail(email);
 
-    if (!email || !password) {
+    if (!normalizedEmail || !password) {
       return res.status(400).json({ success: false, message: 'Email and password are required' });
     }
 
-    const client = await Client.findOne({ email });
+    const client = await Client.findOne({ email: normalizedEmail });
     if (!client || !(await client.comparePassword(password))) {
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }

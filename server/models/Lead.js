@@ -21,11 +21,10 @@ const leadSchema = new mongoose.Schema(
       enum: ['cold', 'warm', 'hot', 'buyer', null],
       default: null,
     },
-    clientId: {
-      type:     mongoose.Schema.Types.ObjectId,
-      ref:      'Client',
-      required: true,
-      index:    true,
+    clientId: 
+    { type: mongoose.Schema.Types.ObjectId,
+      ref: 'Client', 
+      required: true
     },
     aiOutput:        { type: String, default: null },
     recommendedTags: { type: [String], default: [] },

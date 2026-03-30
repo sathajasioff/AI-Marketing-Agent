@@ -17,7 +17,7 @@ const buildDedupedLeadPipeline = (baseQuery = {}) => ([
   { $match: baseQuery },
   // Keep the newest copy when historical duplicate lead docs exist for the same GHL contact.
   { $sort: { lastSyncedAt: -1, updatedAt: -1, createdAt: -1, _id: -1 } },
-  { $group: { _id: '$ghlContactId', doc: { $first: '$$ROOT' } } },
+  { $group: { _id: '$ghlContactId', doc: { $first: '$ROOT' } } },
   { $replaceRoot: { newRoot: '$doc' } },
 ]);
 

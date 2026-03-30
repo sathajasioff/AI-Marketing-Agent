@@ -20,6 +20,10 @@ const clientSchema = new mongoose.Schema(
     generationsUsed:  { type: Number, default: 0 },
     generationsLimit: { type: Number, default: 100 },
 
+    industry: { type: String, enum: ['realestate','ecommerce','restaurant','health','events'], default: 'events' },
+    brandVoice: { type: String, default: 'professional' },
+    onboarded: { type: Boolean, default: false },
+
     // ── GHL per client ──
     ghlApiKey:    { type: String, default: '' },
     ghlLocationId:{ type: String, default: '' },

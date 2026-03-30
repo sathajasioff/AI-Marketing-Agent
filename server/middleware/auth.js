@@ -1,7 +1,7 @@
 import jwt from 'jsonwebtoken';
 import Client from '../models/Client.js';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'elev8-secret-change-in-production';
+if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET is not set in .env — server cannot start'); const JWT_SECRET = process.env.JWT_SECRET;
 
 // ── Generate token ──
 export const generateToken = (clientId) => {
